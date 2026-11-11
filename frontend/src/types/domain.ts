@@ -1,0 +1,9 @@
+export interface User{name:string;email:string;role:string}
+export interface Metric{id:number;key:string;name:string;expression:string;unit:string;description:string;owner:string;dependencies:string[]}
+export interface SourceRow{source_key:string;day:string;channel:string;region:string;revenue:number;cost:number;refunds:number;orders:number;reference_net:number}
+export interface Cell{dimensions:Record<string,string>;values:Record<string,number>;reference_net:number;canonical_net:number;difference:number;relative_difference:number|null;source_count:number}
+export interface ReportResult{dimensions:string[];metrics:Metric[];evaluation_order:string[];dependencies:Record<string,string[]>;cells:Cell[];total:Cell;affected_cells:number;attribution:Cell[];source_checksum:string;reconciliation_rule:string}
+export interface ReportRun{id:number;name:string;dimensions:string[];status:string;result:ReportResult;error:string;created_at:string;owner:string;schedule_id:number|null}
+export interface Schedule{id:number;name:string;dimensions:string[];interval_minutes:number;next_run_at:string;active:boolean;owner:string}
+export interface Delivery{id:number;schedule_id:number;run_id:number;title:string;created_at:string}
+export interface Audit{id:number;actor:string;action:string;target:string;created_at:string}

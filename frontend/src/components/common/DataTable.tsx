@@ -1,0 +1,1 @@
+import {ReactNode} from 'react';export function DataTable({head,children}:{head:string[];children:ReactNode}){return <div className="table-wrap"><table><thead><tr>{head.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{children}</tbody></table></div>}

@@ -1,0 +1,1 @@
+import {useEffect} from 'react';import {useLedger} from '../stores/ledger';export function useLedgerData(poll=false){const data=useLedger();useEffect(()=>{data.refresh();if(poll){const id=setInterval(data.refresh,2000);return()=>clearInterval(id)}},[data.refresh,poll]);return data;}

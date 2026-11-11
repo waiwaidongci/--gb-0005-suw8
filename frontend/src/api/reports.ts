@@ -1,0 +1,1 @@
+import {request} from './client';import {ReportRun} from '../types/domain';export const getReports=()=>request<ReportRun[]>('/reports');export const createReport=(data:{name:string;dimensions:string[]})=>request<ReportRun>('/reports',{method:'POST',body:JSON.stringify(data)});

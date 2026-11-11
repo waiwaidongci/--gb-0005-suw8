@@ -1,0 +1,1 @@
+import {RunStatus} from '../../constants/enums';export function StatusBadge({status}:{status:string}){return <span className={'status '+status}><i/>{RunStatus[status as keyof typeof RunStatus]||status}</span>}

@@ -1,0 +1,1 @@
+import {request} from './client';import {Metric} from '../types/domain';export const getMetrics=()=>request<{items:Metric[];evaluation_order:string[]}>('/metrics');export const registerMetric=(data:{key:string;name:string;expression:string;unit:string;description:string})=>request<Metric>('/metrics',{method:'POST',body:JSON.stringify(data)});

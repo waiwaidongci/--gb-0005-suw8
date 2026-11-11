@@ -1,0 +1,1 @@
+import {request} from './client';import {SourceRow,ReportResult} from '../types/domain';export const getSources=()=>request<SourceRow[]>('/sources');export const getReconciliation=()=>request<ReportResult>('/sources/reconciliation');
