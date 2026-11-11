@@ -1,29 +1,23 @@
-import json,time,traceback
+import logging,time,traceback
 from pathlib import Path
 from .config.database import SessionLocal,engine,Base
-from .models import ReportRun,SourceRow,Metric,Delivery
-from .services.report_service import queue
-from .services.pivot_service import build_report
+from .config.settings import ARTIFACT_DIR,JOB_QUEUE_KEY,RUN_LEASE_SECONDS
+from .services.queue_service import queue
 from .services.scheduler_service import schedule_due
-from .services.audit_service import log
-from .constants.status import RunStatus
-Base.metadata.create_all(engine);Path("/artifacts").mkdir(exist_ok=True)
+from .services.worker_service import recover_pending,process_job
+logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
+Base.metadata.create_all(engine);Path(ARTIFACT_DIR).mkdir(parents=True,exist_ok=True)
+logging.info("worker 启动：租约=%ss 队列=%s",RUN_LEASE_SECONDS,JOB_QUEUE_KEY)
 while True:
-    Path("/artifacts/heartbeat").write_text(str(time.time()))
+    Path(f"{ARTIFACT_DIR}/heartbeat").write_text(str(time.time()))
     try:
-        with SessionLocal() as db:schedule_due(db)
-        job=queue.blpop("metric:jobs",timeout=2)
+        with SessionLocal() as db:
+            # 先对账：恢复中断任务、补推丢失的排队任务，再处理计划到期
+            recover_pending(db)
+            schedule_due(db)
+        job=queue.blpop(JOB_QUEUE_KEY,timeout=2)
         if not job:continue
         with SessionLocal() as db:
-            run=db.get(ReportRun,int(job[1]))
-            if not run or run.status!=RunStatus.QUEUED:continue
-            run.status=RunStatus.RUNNING;db.commit()
-            try:
-                run.result=build_report(db.query(SourceRow).order_by(SourceRow.id).all(),db.query(Metric).order_by(Metric.id).all(),run.dimensions)
-                run.status=RunStatus.COMPLETED
-                Path(f"/artifacts/report-{run.id}.json").write_text(json.dumps(run.result,ensure_ascii=False))
-                if run.schedule_id:db.add(Delivery(schedule_id=run.schedule_id,run_id=run.id,title=run.name))
-                log(db,"worker","report.delivered" if run.schedule_id else "report.completed",run.id)
-            except Exception as e:run.status=RunStatus.FAILED;run.error=str(e);traceback.print_exc()
-            db.commit()
-    except Exception:traceback.print_exc();time.sleep(2)
+            process_job(db,job[1])
+    except Exception:
+        traceback.print_exc();time.sleep(2)

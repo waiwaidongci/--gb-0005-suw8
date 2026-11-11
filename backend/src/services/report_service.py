@@ -1,11 +1,9 @@
-import csv,io
+import csv,io,logging
 from fastapi import HTTPException
-from redis import Redis
-from ..config.settings import REDIS_URL
 from ..models import ReportRun
 from ..utils.serialize import record
 from .audit_service import log
-queue=Redis.from_url(REDIS_URL,decode_responses=True)
+from .queue_service import enqueue
 def list_runs(db):return [record(x) for x in db.query(ReportRun).order_by(ReportRun.id.desc()).limit(100)]
 def get_run(db,rid):
     row=db.get(ReportRun,rid)
@@ -15,9 +13,11 @@ def create_run(db,data,user):
     if len(set(data.dimensions))!=len(data.dimensions):raise HTTPException(422,"不能重复选择维度")
     row=ReportRun(name=data.name,dimensions=data.dimensions,owner=user.name)
     db.add(row);db.flush();log(db,user.email,"report.enqueue",row.id);db.commit()
-    try:queue.rpush("metric:jobs",row.id)
-    except Exception:
-        row.status="failed";row.error="队列暂时不可用，请重新提交";db.commit();raise HTTPException(503,row.error)
+    # 入队失败不改变报表编号与 queued 状态：即时重试后仍失败则由 worker 对账循环补推
+    try:
+        enqueue(row.id)
+    except Exception as exc:
+        logging.error("报表 %s 入队失败，等待对账补推: %s",row.id,exc)
     return record(row)
 def export_run(db,rid):
     row=get_run(db,rid)

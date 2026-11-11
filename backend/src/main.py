@@ -8,7 +8,7 @@ from . import models
 from .routes import auth,metrics,sources,reports,schedules,deliveries,audits
 from .middlewares.errors import ErrorMiddleware
 from .middlewares.rate_limit import RateLimitMiddleware
-from .services.report_service import queue
+from .services.queue_service import queue
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(engine)

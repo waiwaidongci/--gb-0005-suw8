@@ -54,7 +54,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 五项种子定义：net_revenue=revenue-refunds；gross_profit=net_revenue-cost；margin_rate=gross_profit/net_revenue；net_per_order=net_revenue/orders；refund_rate=refunds/revenue。比率单位为小数，界面显示4位。
 
-**定时交付**：独立worker每轮扫描到期且启用的DeliverySchedule，持久化新的ReportRun并推入Redis队列，完成计算后创建唯一run_id的Delivery。没有手动投递接口，分钟周期可用真实等待验证。计划以UTC存储，界面按浏览器时区显示；周期从实际执行时间向后推，不补发停机期间每次错过的周期。
+**定时交付**：独立worker每轮先做队列对账，再扫描到期且启用的DeliverySchedule。对账会补推队列中丢失的queued任务，并把租约（`RUN_LEASE_SECONDS`，默认120秒）过期的running任务按原编号重新排队，因此进程崩溃/重启不会让任务长期挂在处理中。手工与定时报表入队失败均即时重试（`ENQUEUE_RETRY`，默认3次），仍失败时保留原报表编号与queued状态，由后续对账循环补推，接口照常返回202。同一计划至多存在一份未结束（queued/running）的运行（部分唯一索引），重复扫描/并发调度只复用同一报表编号；worker通过条件更新原子领取，重复投递的同一消息只有一个赢家。定时交付按`run_id`唯一幂等，重复领取或重复投递时每份报表只产生一条Delivery记录，中断前已完成的结果与下一期计划不受影响。计划以UTC存储，界面按浏览器时区显示；周期从实际执行时间向后推，不补发停机期间每次错过的周期。
 
 ## 页面与架构
 
@@ -87,6 +87,9 @@ frontend/src/{api,stores,types,components,hooks,pages,router,utils,constants}
 | DB_PORT | 17704 | 数据库宿主端口 |
 | JWT_SECRET | local-metric-ledger-change-this-key | 本地演示签名密钥，部署前更换 |
 | SEED_DEMO | true | 启动自动seed |
+| RUN_LEASE_SECONDS | 120 | running任务租约秒数，超时视为进程中断并回收重排 |
+| ENQUEUE_RETRY | 3 | 入队失败即时重试次数（不含首次） |
+| ENQUEUE_RETRY_DELAY | 0.5 | 入队重试间隔秒数 |
 
 三个命名卷：db-data、redis-data、artifacts；backend与worker共享产物JSON。所有五服务有健康检查，worker2秒循环刷新心跳；frontend依赖backend，backend/worker依赖healthy数据库与Redis。首次建表用SQLAlchemy metadata，迁移目录提供索引示例，后续schema变更需审查迁移。
 
@@ -98,9 +101,11 @@ docker compose down -v --remove-orphans
 
 ## 验证与边界
 
+队列可靠性测试位于 `backend/tests/`（pytest，SQLite + 真实Redis），覆盖入队失败重试与对账补推、租约过期/进程硬杀重启恢复、重复队列消息、并发原子领取、单期唯一运行与交付幂等，以及HTTP 202路径。运行方式：先启动一个本地Redis（`REDIS_TEST_PORT`默认6391，可用`REDIS_SERVER`指定redis-server路径），再在`backend/`下执行`pip install -r requirements.txt pytest httpx && python -m pytest tests/`。
+
 外置测试与截图位于`../../test-artifacts/gb-0005/`，含算法、API、真实周期和浏览器证据。源码不含截图/测试报告/日志，`.env`与日志不提交。
 
-目前面向本地合成研究：无文件上传/外部邮件/多租户隔离；仅支持算术口径，不支持任意SQL或函数。单worker调度不提供多实例分布式锁；running任务崩溃需重新提交，数据库事务与Redis入队之间无事务outbox。金额采用浮点并在输出舍入，非财务总账记账引擎。表达式以当前定义计算且结果保存快照；未提供已注册指标编辑/删除，现有数据试算通过后才能登记，后续来源变化仍可能造成任务失败，结果页会显示错误。来源页最多预览100行，计算用全部来源。Google Fonts无网络会回退字体。
+本地合成研究：无文件上传/外部邮件/多租户隔离；仅支持算术口径，不支持任意SQL或函数。单worker为主的部署模型，但队列消费、定时建运行与交付写入均按at-least-once设计（条件领取、部分唯一索引、run_id唯一交付），重复消息或进程重启不会产生重复交付；数据库事务与Redis入队之间仍非严格事务outbox，靠worker对账循环最终一致。金额采用浮点并在输出舍入，非财务总账记账引擎。表达式以当前定义计算且结果保存快照；未提供已注册指标编辑/删除，现有数据试算通过后才能登记，后续来源变化仍可能造成任务失败，结果页会显示错误。来源页最多预览100行，计算用全部来源。Google Fonts无网络会回退字体。
 
 ## License
 
